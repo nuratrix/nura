@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Nura member-account reader: a read-only role the Nura judgment runtime (nura-judgment-runtime in the
+  governance account) assumes, with an external ID, to gather evidence for findings in this account.
+  Deploy once per member account, or to a whole OU with a StackSet. Not needed in the governance account.
+
+# The permissions are exactly the read calls the agents' tools make (the tool statements of
+# deploy/iam/runtime-policy.json, minus organizations:DescribeAccount, which the runtime makes in
+# the governance account). tests/test_member_reader_role.py fails if the two lists drift apart.
+
+Parameters:
+  GovernanceAccountId:
+    Type: String
+    AllowedPattern: "^\\d{12}$"
+    Description: Account where the Nura AgentCore runtime runs.
+  RuntimeRoleName:
+    Type: String
+    Default: nura-judgment-runtime
+    Description: Execution role of the AgentCore runtime (created by deploy_runtime.ps1).
+  ExternalId:
+    Type: String
+    Default: governance-platform
+    MinLength: 2
+    NoEcho: true
+    Description: Must match MEMBER_ROLE_EXTERNAL_ID of the runtime (deploy_runtime.ps1 -MemberRoleExternalId).
+  RoleName:
+    Type: String
+    Default: governance-platform-reader
+    Description: Must match MEMBER_ROLE_NAME of the runtime (deploy_runtime.ps1 -MemberRoleName).
+  AdditionalPrincipalArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional, for local runs only: another principal in the governance account allowed to assume
+      this role (your IAM user or role ARN; wildcards allowed, e.g.
+      arn:aws:iam::111122223333:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_Admin_*). Leave
+      empty in production.
+
+Conditions:
+  HasAdditionalPrincipal: !Not [!Equals [!Ref AdditionalPrincipalArn, ""]]
+
+Resources:
+  ReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      Description: Read-only evidence access for the Nura judgment layer
+      MaxSessionDuration: 3600
+      # Account principal + aws:PrincipalArn (instead of the role ARN as principal): the trust keeps
+      # working if the runtime role is deleted and recreated, and this stack can be deployed before it.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${GovernanceAccountId}:root
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+              ArnLike:
+                aws:PrincipalArn:
+                  - !Sub arn:${AWS::Partition}:iam::${GovernanceAccountId}:role/${RuntimeRoleName}
+                  - !If [HasAdditionalPrincipal, !Ref AdditionalPrincipalArn, !Ref AWS::NoValue]
+      Policies:
+        - PolicyName: nura-evidence-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: NuraToolReads
+                Effect: Allow
+                Resource: "*"
+                Action:
+                  - access-analyzer:GetFinding
+                  - access-analyzer:ListAnalyzers
+                  - access-analyzer:ListArchiveRules
+                  - access-analyzer:ListFindings
+                  - backup:DescribeBackupVault
+                  - backup:DescribeProtectedResource
+                  - backup:GetBackupPlan
+                  - backup:GetBackupVaultAccessPolicy
+                  - backup:ListBackupJobs
+                  - backup:ListBackupPlans
+                  - backup:ListBackupSelections
+                  - backup:ListRecoveryPointsByResource
+                  - backup:ListRestoreJobs
+                  - backup:ListRestoreTestingPlans
+                  - ce:GetAnomalies
+                  - ce:GetAnomalyMonitors
+                  - ce:GetAnomalySubscriptions
+                  - ce:GetCostAndUsage
+                  - ce:GetDimensionValues
+                  - ce:GetReservationUtilization
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                  - cloudtrail:LookupEvents
+                  - cloudwatch:DescribeAlarmHistory
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - config:DescribeComplianceByConfigRule
+                  - config:DescribeConfigRules
+                  - config:DescribeConfigurationRecorderStatus
+                  - config:DescribeConfigurationRecorders
+                  - config:DescribeConformancePacks
+                  - config:DescribeDeliveryChannels
+                  - config:GetComplianceDetailsByConfigRule
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeFlowLogs
+                  - ec2:DescribeImageAttribute
+                  - ec2:DescribeImages
+                  - ec2:DescribeInstanceAttribute
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInternetGateways
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeNetworkAcls
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeTransitGatewayAttachments
+                  - ec2:DescribeTransitGateways
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeVpcPeeringConnections
+                  - ec2:DescribeVpcs
+                  - ecr:GetRepositoryPolicy
+                  - ecs:DescribeServices
+                  - eks:DescribeCluster
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - guardduty:GetFindings
+                  - guardduty:ListDetectors
+                  - guardduty:ListFindings
+                  - health:DescribeEvents
+                  - iam:GenerateServiceLastAccessedDetails
+                  - iam:GetAccessKeyLastUsed
+                  - iam:GetAccountPasswordPolicy
+                  - iam:GetAccountSummary
+                  - iam:GetLoginProfile
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:GetServiceLastAccessedDetails
+                  - iam:GetUser
+                  - iam:GetUserPolicy
+                  - iam:ListAccessKeys
+                  - iam:ListAttachedGroupPolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:ListAttachedUserPolicies
+                  - iam:ListGroupsForUser
+                  - iam:ListMFADevices
+                  - iam:ListRolePolicies
+                  - iam:ListUserPolicies
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                  - lambda:GetFunctionConfiguration
+                  - lambda:GetPolicy
+                  - lambda:ListFunctionUrlConfigs
+                  - logs:DescribeMetricFilters
+                  - logs:FilterLogEvents
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshotAttributes
+                  - rds:DescribeDBSnapshots
+                  - rds:DescribeEvents
+                  - rds:DescribePendingMaintenanceActions
+                  - route53resolver:ListFirewallRuleGroupAssociations
+                  - route53resolver:ListResolverQueryLogConfigAssociations
+                  - s3:GetAccountPublicAccessBlock
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
+                  - secretsmanager:GetResourcePolicy
+                  - securityhub:GetEnabledStandards
+                  - securityhub:GetFindings
+                  - tag:GetResources
+      Tags:
+        - Key: app
+          Value: nura
+
+Outputs:
+  ReaderRoleArn:
+    Value: !GetAtt ReaderRole.Arn

@@ -221,7 +221,7 @@ src/
   common/           findings repo (DynamoDB), decision log (S3 Object Lock), SNS publisher, sessions
   pipeline/         stream_triage.py (triage Lambda), invoker.py (invoker Lambda), triage.py (batch/local)
 rulesets/           rule catalog per domain (routing, recommended action, remediation policy) + validator
-deploy/             CloudFormation template, deploy scripts, IAM policy templates
+deploy/             CloudFormation templates (foundation, member reader role), deploy scripts, IAM policy templates
 scripts/            seed_findings.py
 data/               sample_findings.json (50 example findings)
 tests/              unit tests (moto for AWS, fake agents for the model step)
@@ -257,7 +257,7 @@ Dockerfile, main.py container image and entrypoint for AgentCore Runtime
   uv sync --extra agents
   ```
   Always include `--extra agents`; without it, `uv sync` removes Strands and the AgentCore SDK.
-- **Multi-account only:** a read-only role named `governance-platform-reader` in each member account. It must trust the `nura-judgment-runtime` role and use the external ID `governance-platform`. The scanner project provides it. For a single-account trial you can skip this: findings in the account you deploy to are read with the runtime's own role.
+- **Multi-account only:** a read-only role named `governance-platform-reader` in each member account, trusting the `nura-judgment-runtime` role with the external ID `governance-platform`. The scanner project provides it. Without the scanner, deploy it from this repository: see [Member accounts](#member-accounts-multi-account-only). For a single-account trial you can skip this: findings in the account you deploy to are read with the runtime's own role.
 
 If Windows blocks the scripts ("running scripts is disabled on this system"), allow them for the current terminal only:
 ```powershell
@@ -300,6 +300,50 @@ Takes about 5–10 minutes, mostly the image build. The script reads the table, 
 .\deploy\deploy_judgement_foundation.ps1      # same parameters as step 1
 ```
 The foundation stack finds the runtime and adds the invoker Lambda. The pipeline is now complete.
+
+### Member accounts (multi-account only)
+
+Findings from another account are read through a role in that account. [`deploy/member-reader-role.yaml`](deploy/member-reader-role.yaml) creates it:
+- name `governance-platform-reader`;
+- assumable only by `nura-judgment-runtime` in your governance account, and only with the external ID `governance-platform`;
+- permissions: exactly the read calls the agents' tools make, nothing more. A unit test keeps this list in sync with the tool statements of [`deploy/iam/runtime-policy.json`](deploy/iam/runtime-policy.json).
+
+Skip it if the scanner project already created the role.
+
+One member account (run with that account's credentials, for example `--profile member`):
+```powershell
+aws cloudformation deploy --stack-name nura-member-reader --template-file deploy/member-reader-role.yaml `
+  --capabilities CAPABILITY_NAMED_IAM --parameter-overrides GovernanceAccountId=<governance-account-id>
+```
+
+Every account in an OU, from the management account (or a StackSets delegated administrator, adding `--call-as DELEGATED_ADMIN`). New accounts in the OU get the role automatically. IAM is global, so one region is enough:
+```powershell
+aws cloudformation create-stack-set --stack-set-name nura-member-reader `
+  --template-body file://deploy/member-reader-role.yaml --capabilities CAPABILITY_NAMED_IAM `
+  --permission-model SERVICE_MANAGED --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false `
+  --parameters ParameterKey=GovernanceAccountId,ParameterValue=<governance-account-id>
+aws cloudformation create-stack-instances --stack-set-name nura-member-reader `
+  --deployment-targets OrganizationalUnitIds=<ou-id> --regions us-east-1
+```
+
+| Parameter | Default | Purpose |
+|---|---|---|
+| `GovernanceAccountId` | (required) | Account running the AgentCore runtime |
+| `RuntimeRoleName` | `nura-judgment-runtime` | The only role allowed to assume the reader |
+| `ExternalId` | `governance-platform` | Must match `deploy_runtime.ps1 -MemberRoleExternalId` |
+| `RoleName` | `governance-platform-reader` | Must match `deploy_runtime.ps1 -MemberRoleName` |
+| `AdditionalPrincipalArn` | empty | Local runs only: your own IAM user or role in the governance account (wildcards allowed, e.g. an `AWSReservedSSO_*` role). Leave empty in production |
+
+The trust policy names the governance account and checks the caller's role ARN in a condition, rather than naming the role as principal. So the stack can be deployed before the runtime exists, and the trust survives the runtime role being recreated.
+
+**Testing multi-account locally:**
+1. Deploy the reader with `AdditionalPrincipalArn` set to your own principal.
+2. Set `MEMBER_ROLE_NAME=governance-platform-reader` in `.env`.
+3. Seed a finding whose `account_id` is the member account.
+
+**Two things the role cannot fix:**
+- An SCP that denies these reads.
+- Cost Explorer access in a member account, which the payer account must allow. The cost tools then report the call in their `errors`.
 
 ### 4. Load findings
 
@@ -367,6 +411,8 @@ uv run agentcore destroy --agent nura_judgment --delete-ecr-repo   # runtime, EC
 aws iam delete-role-policy --role-name nura-judgment-runtime --policy-name nura-judgment
 aws iam delete-role --role-name nura-judgment-runtime
 aws cloudformation delete-stack --stack-name nura-judgment-foundation
+aws cloudformation delete-stack --stack-name nura-member-reader       # in each member account, if deployed that way
+# or, for the StackSet: delete-stack-instances --stack-set-name nura-member-reader --deployment-targets OrganizationalUnitIds=<ou-id> --regions us-east-1 --no-retain-stacks, then delete-stack-set
 ```
 
 The Findings table and decision log bucket are **kept** when the stack is deleted, so evidence outlives the deployment. Delete them yourself once their Object Lock retention has expired.
