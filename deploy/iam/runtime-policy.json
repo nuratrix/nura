@@ -93,6 +93,29 @@
       "Resource": "*"
     },
     {
+      "Sid": "SecurityAgentToolsGovernanceAccount",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketPolicy", "s3:GetBucketPolicyStatus", "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketAcl", "s3:GetAccountPublicAccessBlock",
+        "kms:GetKeyPolicy", "kms:GetKeyRotationStatus",
+        "lambda:GetPolicy", "lambda:ListFunctionUrlConfigs", "lambda:GetFunctionConfiguration",
+        "ecr:GetRepositoryPolicy", "secretsmanager:GetResourcePolicy",
+        "rds:DescribeDBSnapshotAttributes", "rds:DescribeDBInstances", "rds:DescribeDBClusters",
+        "ec2:DescribeSecurityGroups", "ec2:DescribeNetworkInterfaces", "ec2:DescribeInstances",
+        "eks:DescribeCluster",
+        "iam:GetUser", "iam:GetRole", "iam:GetLoginProfile", "iam:GetUserPolicy", "iam:GetRolePolicy",
+        "iam:ListAttachedUserPolicies", "iam:ListUserPolicies", "iam:ListGroupsForUser",
+        "iam:ListAttachedGroupPolicies", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies",
+        "iam:ListMFADevices", "iam:ListAccessKeys", "iam:GetAccessKeyLastUsed",
+        "iam:GetAccountSummary", "iam:GetAccountPasswordPolicy",
+        "guardduty:ListDetectors", "guardduty:ListFindings", "guardduty:GetFindings",
+        "securityhub:GetFindings",
+        "access-analyzer:ListAnalyzers", "access-analyzer:ListFindings"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "ReadMemberAccounts",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",

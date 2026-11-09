@@ -30,7 +30,10 @@ def get_recent_activity(tool_context: ToolContext, days: int = 30, include_read_
     client = finding_session(finding).client("cloudtrail", region_name=region)
 
     end = datetime.now(timezone.utc)
-    kwargs = {"LookupAttributes": [{"AttributeKey": "ResourceName", "AttributeValue": finding["resource_id"]}],
+    # Root is never a ResourceName in CloudTrail: for root findings, what matters is what root *did*.
+    lookup = (("Username", "root") if finding["resource_type"] == "AWS::IAM::RootAccount"
+              else ("ResourceName", finding["resource_id"]))
+    kwargs = {"LookupAttributes": [{"AttributeKey": lookup[0], "AttributeValue": lookup[1]}],
               "StartTime": end - timedelta(days=days), "EndTime": end, "MaxResults": MAX_EVENTS}
     events, scanned = [], 0
     try:
@@ -59,6 +62,7 @@ def get_recent_activity(tool_context: ToolContext, days: int = 30, include_read_
     events = events[:MAX_EVENTS]
     return {
         "resource_id": finding["resource_id"], "region": region, "days": days,
+        "lookup": f"{lookup[0]}={lookup[1]}",
         "event_count": len(events), "events_scanned": scanned,
         "last_event": events[0] if events else None,   # LookupEvents returns newest first
         "events": events,

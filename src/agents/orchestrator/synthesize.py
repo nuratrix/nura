@@ -7,8 +7,11 @@
 3. If the owner's LLM fails or answers outside its list, its opinion falls back to the
    rule. A secondary agent that fails is reported in `incomplete`, and conflicts.apply
    escalates: a missing objection must never let a destructive action through.
-4. No LLM where there is nothing to judge: a single-agent rule with no recommended_action
-   is decided from the rule alone.
+4. A rule with no recommended_action (e.g. most security rules) is *assessed* by its owner
+   when that agent is built: MONITOR / NO_ACTION, or one of its domain actions (containment)
+   as a proposal that remediation.py routes to a human. When the owner isn't built yet, or
+   its LLM fails, the rule's baseline stands: NO_ACTION, with no LLM (mode "rule_only" when
+   no agent was asked at all).
 
 The action is constrained; insight is not. Besides its action an agent returns:
 - observations: typed notes that don't fit the action list (related risks, context,
@@ -76,42 +79,47 @@ def run(finding: dict, route: routing.Route, load_agent: AgentLoader = routing.l
         return {"trace_id": trace_id, **_run(finding, route, load_agent)}
 
 
+class NotBuilt(RuntimeError):
+    """The agent's module has no build_agent() yet."""
+
+
 def _run(finding: dict, route: routing.Route, load_agent: AgentLoader) -> dict:
     base = {"finding_id": finding.get("finding_id"), "rule_id": route.rule_id}
     rule_action = route.recommended_action
+    baseline = rule_action or "NO_ACTION"     # what the rule alone says
 
-    # 4. nothing to judge -> rule only
-    if len(route.agents) == 1 and rule_action is None:
-        return {**base, "mode": "rule_only", "incomplete": [],
-                "opinions": [_rule_opinion(route.owner, "NO_ACTION", finding, "rule")]}
-
-    opinions, incomplete = [], []
+    opinions, incomplete, asked = [], [], 0
     for agent_id in route.agents:
         is_owner = agent_id == route.owner
-
-        if is_owner and rule_action is None:
-            # owner has no write action to propose; only the secondaries are judged
-            opinions.append(_rule_opinion(agent_id, "NO_ACTION", finding, "rule"))
-            continue
-
         allowed = allowed_actions(agent_id, is_owner, rule_action)
         try:
             opinions.append(_ask(agent_id, is_owner, allowed, finding, rule_action, load_agent))
+            asked += 1
+        except NotBuilt as e:
+            if is_owner and rule_action is None:
+                # 4. nothing built to assess with: the rule's baseline, no LLM
+                opinions.append(_rule_opinion(agent_id, baseline, finding, "rule"))
+            elif is_owner:
+                opinions.append(_rule_opinion(agent_id, baseline, finding, "fallback", error=str(e)))
+            else:
+                incomplete.append({"agent": agent_id, "error": str(e)})
         except Exception as e:   # LLM, tool, import or validation failure
             log.warning("%s failed on %s: %s", agent_id, base["finding_id"], e)
+            asked += 1
             if is_owner:
                 # 3. owner falls back to the rule
-                opinions.append(_rule_opinion(agent_id, rule_action, finding, "fallback", error=str(e)))
+                opinions.append(_rule_opinion(agent_id, baseline, finding, "fallback", error=str(e)))
             else:
                 incomplete.append({"agent": agent_id, "error": str(e)})
 
-    return {**base, "mode": "agents", "opinions": opinions, "incomplete": incomplete}
+    mode = "agents" if asked or incomplete else "rule_only"
+    return {**base, "mode": mode, "opinions": opinions, "incomplete": incomplete}
 
 
 def _ask(agent_id, is_owner, allowed, finding, rule_action, load_agent) -> dict:
     agent = load_agent(agent_id)
     if agent is None:
-        raise RuntimeError(f"{agent_id} is not built yet")
+        raise NotBuilt(f"{agent_id} is not built yet")
 
     model = create_model(OPINION_MODEL, __base__=_Opinion,
                          action=(Literal[tuple(sorted(allowed))], ...))
@@ -171,7 +179,14 @@ def _prompt(agent_id, is_owner, allowed, finding, rule_action) -> str:
     facts = {k: finding.get(k) for k in (
         "finding_id", "rule_id", "title", "severity", "account_id", "region", "resource_type",
         "resource_id", "evidence", "estimated_monthly_saving", "recommendation", "detected_at")}
-    if is_owner:
+    if is_owner and rule_action is None:
+        role = ("You own this finding. Its rule records the problem but recommends no automated "
+                "action, so assess it with your tools: is the risk real and current (actually exposed, "
+                "actually used, not covered by an approved exception)? Choose NO_ACTION if your tools "
+                "show it is not a real risk, MONITOR if it is real but contained or low urgency, or a "
+                "containment action if it needs one now. A containment action is a proposal for a "
+                "person to decide on; it is never carried out automatically.")
+    elif is_owner:
         role = (f"You own this finding. The rule recommends {rule_action}. Confirm {rule_action} "
                 "unless your tools show context the scanner could not see (for example tags, recent "
                 "activity, an approved change) that makes it wrong or premature; then choose MONITOR "

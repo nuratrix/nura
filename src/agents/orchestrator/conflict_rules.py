@@ -75,9 +75,16 @@ assert all(a <= ACTIONS for a in SECONDARY_ACTIONS.values()), "SECONDARY_ACTIONS
 
 
 def allowed_actions(agent_id: str, is_owner: bool, rule_action: str | None) -> frozenset[str]:
-    """The only actions an agent's LLM answer may contain for this finding."""
-    if is_owner:
-        return SIGNALS | ({rule_action} if rule_action else set())
+    """The only actions an agent's LLM answer may contain for this finding.
+
+    Owner, rule has an action: confirm it or soften it to a signal.
+    Owner, rule has none ("assess"): a signal, or one of its domain actions (the same short
+      list it has as a secondary). Such a proposal is never executed: remediation.py marks
+      it agent-proposed and requires a human.
+    Secondary: a signal or its domain actions.
+    """
+    if is_owner and rule_action:
+        return SIGNALS | {rule_action}
     return SIGNALS | SECONDARY_ACTIONS[agent_id]
 
 

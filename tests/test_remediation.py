@@ -1,6 +1,7 @@
 import pytest
 
 from agents.orchestrator import remediation, routing
+from agents.orchestrator.routing import Route
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +55,21 @@ def test_auto_when_rule_allows_it():
                       {"action": "restart_ecs_service", "eligible_when": None, "requires_approval": False})
     d = remediation.attach(decision(actions=("REPLACE",)), {"evidence": {}}, r)
     assert d["execution"]["mode"] == "AUTO" and d["requires_human"] is False
+
+
+def test_agent_proposed_action_on_rule_without_action_needs_a_human():
+    r = Route(rule_id="SEC-S3-002", domain="security", owner="security-agent", agents=("security-agent",),
+              recommended_action=None, ruleset_version="1.0")
+    d = remediation.attach(decision(actions=("QUARANTINE",)), {"evidence": {}}, r)
+    assert d["execution"]["mode"] == "PROPOSED" and d["execution"]["action"] == "QUARANTINE"
+    assert d["requires_human"] is True
+
+
+def test_signal_on_rule_without_action_needs_nobody():
+    r = Route(rule_id="SEC-S3-002", domain="security", owner="security-agent", agents=("security-agent",),
+              recommended_action=None, ruleset_version="1.0")
+    d = remediation.attach(decision(outcome="NO_ACTION", actions=("MONITOR",)), {"evidence": {}}, r)
+    assert d["execution"]["mode"] == "NONE" and d["requires_human"] is False
 
 
 def test_agent_review_blocks_remediation():

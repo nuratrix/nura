@@ -8,12 +8,17 @@ from the rule alone (never the agent):
       APPROVAL   remediation exists and is eligible, but a human must approve it first
       MANUAL     the rule's action stands but there is no automated remediation for it
                  (rule has none, or the finding fails eligible_when): a person carries it out
+      PROPOSED   the rule has no action, and an agent proposed one (e.g. QUARANTINE on a
+                 security finding). Nothing in the ruleset backs it, so a person decides
+                 whether and how to carry it out. Never executed automatically.
       NONE       nothing to execute (escalated, deferred, suppressed, softened, or no action)
 
-requires_human is set when a person must approve or decide; MANUAL is a to-do, not a decision.
+requires_human is set when a person must approve or decide (APPROVAL, PROPOSED);
+MANUAL is a to-do, not a decision.
 """
 from __future__ import annotations
 
+from agents.orchestrator.conflict_rules import SIGNALS
 from agents.orchestrator.routing import Route
 
 _OPS = {
@@ -25,12 +30,18 @@ _OPS = {
 
 def attach(decision: dict, finding: dict, route: Route) -> dict:
     execution = _execution(decision, finding, route)
-    requires_human = decision.get("requires_human", False) or execution["mode"] == "APPROVAL"
+    requires_human = (decision.get("requires_human", False)
+                      or execution["mode"] in ("APPROVAL", "PROPOSED"))
     return {**decision, "execution": execution, "requires_human": requires_human}
 
 
 def _execution(decision: dict, finding: dict, route: Route) -> dict:
     rule_action = route.recommended_action
+    proposed = [a for a in decision.get("actions", []) if a not in SIGNALS]
+    if decision.get("outcome") == "RESOLVED" and rule_action is None and proposed:
+        return {"mode": "PROPOSED", "action": proposed[0], "proposed": proposed,
+                "reason": "agent-proposed action; the rule has none, so a person decides"}
+
     if (decision.get("outcome") != "RESOLVED" or rule_action is None
             or rule_action not in decision.get("actions", [])):
         # the rule's action didn't win (or there is none): nothing of the rule's to execute

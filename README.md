@@ -42,9 +42,11 @@ A finding moves through these steps:
 3. **Invoker Lambda.** Takes one message at a time, with limited concurrency, and calls the AgentCore runtime. After 3 failed attempts a finding goes to a dead-letter queue, so it is never lost.
 4. **Orchestrator on Bedrock AgentCore Runtime.** One container holding the orchestrator and all nine domain agents:
    - **Routing** (code): the finding's rule ID picks the owning agent and any secondary agents from the rulesets in [`rulesets/`](rulesets/).
-   - **Synthesis** (the only model step): each agent (Amazon Nova Pro, via Strands Agents) uses read-only tools (resource tags, CloudTrail activity, Cost Explorer) and returns a structured opinion.
+   - **Synthesis** (the only model step): each agent (Amazon Nova Pro, via Strands Agents) uses read-only tools and returns a structured opinion. The tools cover resource tags, CloudTrail activity and Cost Explorer, and for the security agent also resource policies, network exposure, IAM identity power, and GuardDuty / Security Hub / Access Analyzer findings.
+     - If the rule recommends an action, the owner agent confirms it or softens it.
+     - If the rule recommends none (most security rules), the owner agent *assesses* the finding: no action, monitor, or a containment action proposed to a person.
    - **Conflict rules** (code): a fixed table settles disagreements between agents, such as evidence hold vs. delete or approved change vs. cleanup. Anything the rules don't cover goes to a human.
-   - **Remediation policy** (code): the rule decides whether an action may run automatically, needs approval, or is manual only.
+   - **Remediation policy** (code): the rule decides whether an action may run automatically, needs approval, or is manual only. An action an agent proposes without a rule behind it is marked `PROPOSED`: a person decides.
 5. **Outputs.**
    - **Decision log:** every decision is written to S3 Object Lock (WORM), *before* anyone is notified.
    - **SNS topic:** receives a compact summary with message attributes (`requires_human`, `outcome`, `severity`, …), so email, on-call and Microsoft Teams subscribers can each filter for what they need.
@@ -64,6 +66,7 @@ Nura lets agents make recommendations, but only inside a frame that keeps them *
 ### Controlled: code decides, the model only judges
 - **Code picks the agents, not the model.** The rule ID selects them from versioned rulesets ([`routing.py`](src/agents/orchestrator/routing.py)), and the severity rule keeps LOW/MEDIUM away from the model altogether.
 - **The model can only choose from allowed actions.** Its answer is a structured response restricted to the actions its role permits ([`synthesize.py`](src/agents/orchestrator/synthesize.py), [`conflict_rules.py`](src/agents/orchestrator/conflict_rules.py)). It cannot invent new ones.
+- **The agent can propose, but cannot act on its own.** When a rule has no action, the agent may only propose its own domain's containment actions (for the security agent: `CLOSE_PATH`, `REVOKE`, `ROTATE_KEY`, `ISOLATE`, `QUARANTINE`, `ENCRYPT_CMK`, `PRESERVE`). Such a decision always requires a human and is never executed.
 - **Disagreements are settled by a static table.** Anything the table doesn't cover escalates to a human ([`conflicts.py`](src/agents/orchestrator/conflicts.py)).
 - **The rule decides how an action may happen.** `requires_approval` and `eligible_when` settle whether it can run automatically, needs approval, or is manual ([`remediation.py`](src/agents/orchestrator/remediation.py)). The model cannot override this.
 - **Least privilege throughout.** The agents' tools are read-only. Each component has its own narrowly scoped IAM role. The triage Lambda can write only `triage/` records, and the runtime only `decisions/` records.
@@ -188,8 +191,9 @@ The decision log already stores everything needed to create cases, so the harnes
 src/
   agents/
     orchestrator/   routing, synthesize (LLM step), conflict rules, remediation, orchestrator_agent
-    subagents/      one module per domain agent (cost agent built; see Status)
-    tools/context/  read-only agent tools: tags, CloudTrail, Cost Explorer
+    subagents/      one module per domain agent (cost and security built; see Status), shared model.py
+    tools/context/  read-only agent tools: tags, CloudTrail, Cost Explorer, security (policy,
+                    network exposure, IAM identity, GuardDuty / Security Hub / Access Analyzer)
     runtime/app.py  AgentCore entrypoint (POST /invocations {"finding_id": ...})
   common/           findings repo (DynamoDB), decision log (S3 Object Lock), SNS publisher, sessions
   pipeline/         stream_triage.py (triage Lambda), invoker.py (invoker Lambda), triage.py (batch/local)
@@ -322,6 +326,7 @@ copy .env.example .env                          # then fill in the values printe
 uv run pytest                                   # unit tests, no AWS calls
 uv run python -m agents.subagents.cost_agent COST-EC2-004             # judge a sample finding (Bedrock + AWS reads)
 uv run python -m agents.subagents.cost_agent COST-EC2-004 --publish   # also write the decision log + publish to SNS
+uv run python -m agents.subagents.security_agent SEC-S3-002           # assess a sample security finding
 uv run python rulesets/validate_rule_sets.py    # validate the rule catalog
 ```
 
@@ -349,8 +354,9 @@ The Findings table and decision log bucket are **kept** when the stack is delete
 | Triage (stream), queues, invoker, decision log, SNS | Built |
 | Orchestrator: routing, synthesis, conflict rules, remediation policy | Built |
 | Cost agent | Built |
-| Other eight domain agents | Planned. Until built, an owner agent falls back to the rule's recommended action (marked `source: fallback`), and a missing secondary agent escalates the finding to a human |
+| Security agent | Built: assesses all 79 security rules (none carry a recommended action), with exposure, identity and threat-detection tools |
+| Other seven domain agents | Planned. Until built, an owner agent falls back to the rule's recommended action (marked `source: fallback`), or to `NO_ACTION` when the rule has none, and a missing secondary agent escalates the finding to a human |
 | Golden dataset and evaluation harness (`evals/`) | Planned. See [Evaluating the judgments](#evaluating-the-judgments) |
 | CloudWatch alarms (DLQ depth, message age), dashboards, daily briefing | Planned |
 | Decision log in a separate Log Archive account | Planned |
-| Automated remediation | Decisions record the execution mode (AUTO / APPROVAL / MANUAL); nothing is executed yet |
+| Automated remediation | Decisions record the execution mode (AUTO / APPROVAL / MANUAL / PROPOSED); nothing is executed yet |

@@ -40,11 +40,36 @@ def loader(answers, calls=None):
     return load
 
 
-def test_rule_only_when_nothing_to_judge():
+def test_rule_only_when_owner_not_built():
     calls = []
-    r = synthesize.run(FINDING, route(["security-agent"], None), loader({}, calls))
+    r = synthesize.run(FINDING, route(["security-agent"], None), loader({"security-agent": None}, calls))
     assert r["mode"] == "rule_only" and calls == []
     assert r["opinions"][0]["action"] == "NO_ACTION" and r["opinions"][0]["source"] == "rule"
+
+
+def test_built_owner_assesses_rule_without_action():
+    calls = []
+    r = synthesize.run(FINDING, route(["security-agent"], None), loader({"security-agent": "QUARANTINE"}, calls))
+    assert r["mode"] == "agents" and r["opinions"][0]["source"] == "llm"
+    assert r["opinions"][0]["action"] == "QUARANTINE"
+    assert "recommends no automated action" in calls[0]
+    assert "QUARANTINE" in calls[0] and "REVOKE" in calls[0]          # its containment list is offered
+    d = conflicts.apply(r)
+    assert d["outcome"] == "RESOLVED" and d["actions"] == ["QUARANTINE"]
+
+
+def test_assessing_owner_cannot_pick_another_domains_action():
+    r = synthesize.run(FINDING, route(["security-agent"], None), loader({"security-agent": "DELETE"}))
+    op = r["opinions"][0]
+    assert (op["action"], op["source"]) == ("NO_ACTION", "fallback")   # rule baseline, error recorded
+    assert "error" in op
+
+
+def test_assessing_owner_failure_keeps_rule_baseline():
+    r = synthesize.run(FINDING, route(["security-agent"], None),
+                       loader({"security-agent": RuntimeError("throttled")}))
+    assert r["mode"] == "agents"
+    assert (r["opinions"][0]["action"], r["opinions"][0]["source"]) == ("NO_ACTION", "fallback")
 
 
 def test_owner_confirms_and_secondary_objects():
@@ -90,11 +115,12 @@ def test_secondary_outside_its_list_is_incomplete():
     assert r["incomplete"] and conflicts.apply(r)["outcome"] == "ESCALATED"
 
 
-def test_owner_without_action_skips_llm_but_secondaries_run():
+def test_unbuilt_owner_without_action_uses_rule_but_secondaries_run():
     calls = []
     r = synthesize.run(FINDING, route(["compliance-agent", "backup-dr-agent"], None),
-                       loader({"backup-dr-agent": "NO_ACTION"}, calls))
+                       loader({"compliance-agent": None, "backup-dr-agent": "NO_ACTION"}, calls))
     assert r["opinions"][0]["source"] == "rule" and len(calls) == 1
+    assert r["mode"] == "agents"
 
 
 def test_prompt_lists_allowed_actions():
