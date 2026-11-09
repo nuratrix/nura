@@ -1,0 +1,22 @@
+# Only pyproject.toml, uv.lock, src/ and rulesets/ belong in the image.
+# Secrets and local state must never be uploaded to CodeBuild.
+.env
+.env.*
+!.env.example
+.venv/
+.git/
+.vscode/
+.idea/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+evals/
+data/
+scripts/
+deploy/
+*.png
+*.pdf
+.bedrock_agentcore.yaml
+.bedrock_agentcore/
+.dockerignore

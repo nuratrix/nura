@@ -1,0 +1,26 @@
+# Secrets and local settings: copy .env.example to .env and fill it in
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+
+# AgentCore starter toolkit: generated per deployment (account, role ARNs, ECR URI)
+.bedrock_agentcore.yaml
+.bedrock_agentcore/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,429 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Nura judgment layer foundation (stack nura-judgment-foundation):
+  Findings table -stream-> triage Lambda -> LOW/MEDIUM: decision log (S3 Object Lock, triage/)
+                                         -> HIGH/CRITICAL: nura-high-critical queue -> invoker
+  Lambda -> AgentCore runtime -> decision log (decisions/) + SNS topic.
+  Deploy with deploy/deploy_judgement_foundation.ps1: it inlines the Lambda sources, reuses a
+  table/bucket/topic that already exists, and adds the invoker once the runtime is deployed.
+
+Parameters:
+  # ---- names; Create* = false reuses an existing resource of that name ----
+  FindingsTableName:
+    Type: String
+    Default: Findings
+  CreateFindingsTable:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  ExistingFindingsStreamArn:
+    Type: String
+    Default: ""
+    Description: Stream ARN of the existing table (required when CreateFindingsTable = false).
+  DecisionLogBucket:
+    Type: String
+    Description: Globally unique. The script defaults it to nura-decisionlog-<account>-<region>.
+  CreateDecisionLogBucket:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  TopicName:
+    Type: String
+    Default: nura-findings
+  CreateTopic:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  NotificationEmail:
+    Type: String
+    Default: ""
+    Description: Optional. Subscribes this address to the topic (confirm the email AWS sends).
+  # ---- behaviour ----
+  DecisionLogRetentionDays:
+    Type: Number
+    Default: 2555
+    MinValue: 1
+    Description: Object Lock retention for triage records (~7 years). Testing - 1.
+  DecisionLogLockMode:
+    Type: String
+    AllowedValues: [GOVERNANCE, COMPLIANCE]
+    Default: GOVERNANCE
+  AgentRuntimeArn:
+    Type: String
+    Default: ""
+    Description: AgentCore runtime ARN. Empty = no invoker yet (deploy the runtime, then rerun).
+  InvokerTimeoutSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 60
+    MaxValue: 900
+    Description: One judgment (~1-3 min). invoker.py's read timeout (280s) must stay below this.
+  VisibilityTimeoutSeconds:
+    Type: Number
+    Default: 1800
+    MinValue: 60
+    MaxValue: 43200
+    Description: 6x InvokerTimeoutSeconds (AWS guidance for Lambda SQS sources).
+  MaxConcurrentJudgments:
+    Type: Number
+    Default: 2
+    MinValue: 2
+    MaxValue: 1000
+    Description: Parallel judgments; low keeps Bedrock throttling and spend predictable.
+
+Conditions:
+  CreateTable: !Equals [!Ref CreateFindingsTable, "true"]
+  CreateBucket: !Equals [!Ref CreateDecisionLogBucket, "true"]
+  CreateSnsTopic: !Equals [!Ref CreateTopic, "true"]
+  HasEmail: !And [!Condition CreateSnsTopic, !Not [!Equals [!Ref NotificationEmail, ""]]]
+  HasRuntime: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
+
+Resources:
+  # ======================= stores =======================
+  # Operational store written by the scanner (or scripts/seed_findings.py). Same schema as the
+  # scanner project. Retained on stack delete: findings outlive this stack.
+  FindingsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: CreateTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref FindingsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: finding_id, AttributeType: S }
+        - { AttributeName: account_id, AttributeType: S }
+        - { AttributeName: severity, AttributeType: S }
+        - { AttributeName: resource_id, AttributeType: S }
+        - { AttributeName: last_seen_at, AttributeType: S }
+      KeySchema:
+        - { AttributeName: finding_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: by-account
+          KeySchema: [{ AttributeName: account_id, KeyType: HASH }, { AttributeName: last_seen_at, KeyType: RANGE }]
+          Projection: { ProjectionType: ALL }
+        - IndexName: by-severity
+          KeySchema: [{ AttributeName: severity, KeyType: HASH }, { AttributeName: last_seen_at, KeyType: RANGE }]
+          Projection: { ProjectionType: ALL }
+        - IndexName: by-resource
+          KeySchema: [{ AttributeName: resource_id, KeyType: HASH }, { AttributeName: last_seen_at, KeyType: RANGE }]
+          Projection: { ProjectionType: ALL }
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES      # triage compares old vs new severity
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  # WORM audit log. Object Lock must be enabled at creation; records are locked per object by
+  # the writers (no default retention, no lifecycle expiry). Retained on stack delete.
+  DecisionLog:
+    Type: AWS::S3::Bucket
+    Condition: CreateBucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref DecisionLogBucket
+      ObjectLockEnabled: true
+      VersioningConfiguration: { Status: Enabled }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+
+  DecisionLogPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: CreateBucket
+    Properties:
+      Bucket: !Ref DecisionLog
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnforceTLS
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt DecisionLog.Arn, !Sub "${DecisionLog.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+          # GOVERNANCE mode can be bypassed with this permission; deny it to everyone so a locked
+          # record can only go early by first editing this policy (which CloudTrail records).
+          - Sid: NoGovernanceBypass
+            Effect: Deny
+            Principal: "*"
+            Action: s3:BypassGovernanceRetention
+            Resource: !Sub "${DecisionLog.Arn}/*"
+
+  FindingsTopic:
+    Type: AWS::SNS::Topic
+    Condition: CreateSnsTopic
+    Properties:
+      TopicName: !Ref TopicName
+      DisplayName: Nura findings
+
+  FindingsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Condition: CreateSnsTopic
+    Properties:
+      Topics: [!Ref FindingsTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OwnerAccount
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root" }
+            Action: [sns:Publish, sns:Subscribe, sns:GetTopicAttributes, sns:ListSubscriptionsByTopic]
+            Resource: !Ref FindingsTopic
+          - Sid: EnforceTLS
+            Effect: Deny
+            Principal: "*"
+            Action: sns:Publish
+            Resource: !Ref FindingsTopic
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasEmail
+    Properties:
+      TopicArn: !Ref FindingsTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # ======================= queues =======================
+  HighCriticalDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: nura-high-critical-dlq
+      MessageRetentionPeriod: 1209600          # 14 days to inspect and redrive
+      SqsManagedSseEnabled: true
+
+  HighCriticalQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: nura-high-critical
+      VisibilityTimeout: !Ref VisibilityTimeoutSeconds
+      MessageRetentionPeriod: 345600           # 4 days
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt HighCriticalDLQ.Arn
+        maxReceiveCount: 3                     # 3 failed judgments -> DLQ, never silently dropped
+
+  TriageFailures:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: nura-triage-failures          # metadata of stream batches that never got triaged
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  QueueTlsPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref HighCriticalQueue, !Ref HighCriticalDLQ, !Ref TriageFailures]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnforceTLS
+            Effect: Deny
+            Principal: "*"
+            Action: "sqs:*"
+            Resource: [!GetAtt HighCriticalQueue.Arn, !GetAtt HighCriticalDLQ.Arn, !GetAtt TriageFailures.Arn]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  # ======================= triage: Findings stream =======================
+  # Stream reads by a Lambda trigger are free, and records the filter drops are never billed:
+  # rescans that only bump last_seen_at cost nothing. New LOW/MEDIUM findings get one locked
+  # triage record; HIGH/CRITICAL are queued for the agents once, when they appear or escalate.
+  TriageLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/nura-judgment-triage
+      RetentionInDays: 30
+
+  TriageRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: nura-judgment-triage - read the Findings stream, queue or log each finding
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: nura-judgment-triage
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt TriageLogs.Arn
+              - Sid: ReadFindingsStream
+                Effect: Allow
+                Action: [dynamodb:DescribeStream, dynamodb:GetRecords, dynamodb:GetShardIterator]
+                Resource: !If [CreateTable, !GetAtt FindingsTable.StreamArn, !Ref ExistingFindingsStreamArn]
+              - Sid: ListStreams
+                Effect: Allow
+                Action: dynamodb:ListStreams
+                Resource: "*"
+              - Sid: QueueFindings
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: [!GetAtt HighCriticalQueue.Arn, !GetAtt TriageFailures.Arn]
+              - Sid: WriteTriageRecords          # triage/ only: cannot touch agent decisions
+                Effect: Allow
+                Action: [s3:PutObject, s3:PutObjectRetention]
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${DecisionLogBucket}/triage/*"
+
+  Triage:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: nura-judgment-triage
+      Description: Findings stream -> HIGH/CRITICAL to nura-high-critical, LOW/MEDIUM to the decision log
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt TriageRole.Arn
+      Timeout: 60
+      MemorySize: 128
+      LoggingConfig:
+        LogGroup: !Ref TriageLogs
+      Environment:
+        Variables:
+          HIGH_CRITICAL_QUEUE_URL: !Ref HighCriticalQueue
+          DECISION_LOG_BUCKET: !Ref DecisionLogBucket
+          DECISION_LOG_RETENTION_DAYS: !Ref DecisionLogRetentionDays
+          DECISION_LOG_LOCK_MODE: !Ref DecisionLogLockMode
+      Code:
+        ZipFile: |
+          # TRIAGE_CODE (replaced with src/pipeline/stream_triage.py by deploy_judgement_foundation.ps1)
+
+  TriageStreamSource:
+    Type: AWS::Lambda::EventSourceMapping
+    DependsOn: TriageRole
+    Properties:
+      FunctionName: !Ref Triage
+      EventSourceArn: !If [CreateTable, !GetAtt FindingsTable.StreamArn, !Ref ExistingFindingsStreamArn]
+      StartingPosition: LATEST                 # don't replay the last 24h on first deploy
+      BatchSize: 25
+      MaximumBatchingWindowInSeconds: 5
+      MaximumRetryAttempts: 5
+      MaximumRecordAgeInSeconds: 86400
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      DestinationConfig:
+        OnFailure:
+          Destination: !GetAtt TriageFailures.Arn
+      # OR of three patterns, each checked against a stream record (DynamoDB JSON).
+      # Tested with `aws events test-event-pattern` (same pattern language).
+      FilterCriteria:
+        Filters:
+          - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"severity":{"S":["LOW","MEDIUM","HIGH","CRITICAL"]}}}}'
+          - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"NewImage":{"severity":{"S":["HIGH","CRITICAL"]}},"OldImage":{"severity":{"S":[{"anything-but":["HIGH","CRITICAL"]}]}}}}'
+          - Pattern: '{"eventName":["MODIFY"],"dynamodb":{"NewImage":{"severity":{"S":["CRITICAL"]}},"OldImage":{"severity":{"S":["HIGH"]}}}}'
+
+  # ======================= invoker (once the runtime exists) =======================
+  InvokerLogs:
+    Type: AWS::Logs::LogGroup
+    Condition: HasRuntime
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/nura-judgment-invoker
+      RetentionInDays: 30
+
+  InvokerRole:
+    Type: AWS::IAM::Role
+    Condition: HasRuntime
+    Properties:
+      Description: nura-judgment-invoker - read the intake queue, invoke the judgment runtime
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: nura-judgment-invoker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt InvokerLogs.Arn
+              - Sid: ConsumeQueue
+                Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility,
+                         sqs:GetQueueAttributes]
+                Resource: !GetAtt HighCriticalQueue.Arn
+              - Sid: InvokeJudgmentRuntime
+                Effect: Allow
+                Action: bedrock-agentcore:InvokeAgentRuntime
+                Resource:
+                  - !Ref AgentRuntimeArn
+                  - !Sub "${AgentRuntimeArn}/runtime-endpoint/*"
+
+  Invoker:
+    Type: AWS::Lambda::Function
+    Condition: HasRuntime
+    Properties:
+      FunctionName: nura-judgment-invoker
+      Description: SQS nura-high-critical -> AgentCore runtime, one finding per message
+      Runtime: python3.12
+      Architectures: [arm64]
+      Handler: index.handler
+      Role: !GetAtt InvokerRole.Arn
+      Timeout: !Ref InvokerTimeoutSeconds
+      MemorySize: 256
+      LoggingConfig:
+        LogGroup: !Ref InvokerLogs
+      Environment:
+        Variables:
+          AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+          AGENT_RUNTIME_QUALIFIER: DEFAULT
+      Code:
+        ZipFile: |
+          # INVOKER_CODE (replaced with src/pipeline/invoker.py by deploy_judgement_foundation.ps1)
+
+  InvokerQueueSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: HasRuntime
+    Properties:
+      FunctionName: !Ref Invoker
+      EventSourceArn: !GetAtt HighCriticalQueue.Arn
+      BatchSize: 1                              # one finding = one judgment = one retry unit
+      FunctionResponseTypes: [ReportBatchItemFailures]
+      ScalingConfig:
+        MaximumConcurrency: !Ref MaxConcurrentJudgments
+
+Outputs:
+  # Read by deploy_runtime.ps1 (runtime env + IAM policy) and printed as .env lines.
+  FindingsTableName:
+    Value: !Ref FindingsTableName
+  FindingsStreamArn:
+    Value: !If [CreateTable, !GetAtt FindingsTable.StreamArn, !Ref ExistingFindingsStreamArn]
+  DecisionLogBucket:
+    Value: !Ref DecisionLogBucket
+  FindingsTopicArn:
+    Value: !If [CreateSnsTopic, !Ref FindingsTopic, !Sub "arn:${AWS::Partition}:sns:${AWS::Region}:${AWS::AccountId}:${TopicName}"]
+  HighCriticalQueueUrl:
+    Value: !Ref HighCriticalQueue
+  HighCriticalDLQUrl:
+    Value: !Ref HighCriticalDLQ
+  TriageFailuresUrl:
+    Value: !Ref TriageFailures
+  DecisionLogRetentionDays:
+    Value: !Ref DecisionLogRetentionDays
+  DecisionLogLockMode:
+    Value: !Ref DecisionLogLockMode
+  InvokerFunction:
+    Condition: HasRuntime
+    Value: !Ref Invoker

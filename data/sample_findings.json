@@ -1,0 +1,922 @@
+[
+  {
+    "rule_id": "SEC-IAM-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "root",
+    "resource_type": "AWS::IAM::RootAccount",
+    "severity": "CRITICAL",
+    "title": "Root account used recently",
+    "recommendation": "Root was used 3 day(s) ago. Use IAM users or roles with least privilege instead of root.",
+    "evidence": {
+      "days_since_use": 3,
+      "max_days_since_root_use": 30
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T06:00:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-IAM-001#root"
+  },
+  {
+    "rule_id": "SEC-IAM-001b",
+    "domain": "security",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "root",
+    "resource_type": "AWS::IAM::RootAccount",
+    "severity": "CRITICAL",
+    "title": "Root account MFA not enabled",
+    "recommendation": "Enable virtual or hardware MFA on the root account immediately.",
+    "evidence": {
+      "mfa_enabled": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:53:00+00:00",
+    "finding_id": "333333333333#us-east-1#SEC-IAM-001b#root"
+  },
+  {
+    "rule_id": "SEC-S3-002",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "acme-customer-exports",
+    "resource_type": "AWS::S3::Bucket",
+    "severity": "CRITICAL",
+    "title": "S3 bucket policy allows public access",
+    "recommendation": "Remove the Principal \"*\" statement from the bucket policy of acme-customer-exports and enable Block Public Access.",
+    "evidence": {
+      "policy_principal": "*",
+      "actions": [
+        "s3:GetObject"
+      ]
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:46:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-S3-002#acme-customer-exports"
+  },
+  {
+    "rule_id": "NET-SG-001",
+    "domain": "network-security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "sg-0a1b2c3d4e5f60001",
+    "resource_type": "AWS::EC2::SecurityGroup",
+    "severity": "CRITICAL",
+    "title": "Security group allows all inbound traffic from the internet",
+    "recommendation": "Remove the 0.0.0.0/0 all-traffic ingress rule from sg-0a1b2c3d4e5f60001.",
+    "evidence": {
+      "cidr": "0.0.0.0/0",
+      "protocol": "-1",
+      "attached_enis": 4
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:39:00+00:00",
+    "finding_id": "111111111111#us-east-1#NET-SG-001#sg-0a1b2c3d4e5f60001"
+  },
+  {
+    "rule_id": "SEC-RDS-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-west-2",
+    "resource_id": "orders-db-prod",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "CRITICAL",
+    "title": "RDS instance publicly accessible",
+    "recommendation": "Set PubliclyAccessible=false on orders-db-prod and restrict its security group.",
+    "evidence": {
+      "publicly_accessible": true,
+      "engine": "postgres"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:32:00+00:00",
+    "finding_id": "111111111111#us-west-2#SEC-RDS-001#orders-db-prod"
+  },
+  {
+    "rule_id": "SEC-GD-001",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "eu-west-1",
+    "resource_id": "eu-west-1",
+    "resource_type": "AWS::GuardDuty::Detector",
+    "severity": "CRITICAL",
+    "title": "GuardDuty not enabled",
+    "recommendation": "Enable GuardDuty in eu-west-1 (preferably via delegated administrator for the organization).",
+    "evidence": {
+      "detector_count": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:25:00+00:00",
+    "finding_id": "222222222222#eu-west-1#SEC-GD-001#eu-west-1"
+  },
+  {
+    "rule_id": "SEC-KMS-002",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "mrk-4f1e2d3c4b5a69788",
+    "resource_type": "AWS::KMS::Key",
+    "severity": "CRITICAL",
+    "title": "KMS key policy allows any AWS principal",
+    "recommendation": "Replace Principal \"*\" in the key policy with specific account/role ARNs.",
+    "evidence": {
+      "policy_principal": "*"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:18:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-KMS-002#mrk-4f1e2d3c4b5a69788"
+  },
+  {
+    "rule_id": "COMP-CIS-012",
+    "domain": "compliance",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "account-trail",
+    "resource_type": "AWS::CloudTrail::Trail",
+    "severity": "CRITICAL",
+    "title": "No multi-region CloudTrail, or trail not logging",
+    "recommendation": "Create a multi-region CloudTrail trail and start logging.",
+    "evidence": {
+      "is_multi_region": false,
+      "is_logging": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:11:00+00:00",
+    "finding_id": "333333333333#us-east-1#COMP-CIS-012#account-trail"
+  },
+  {
+    "rule_id": "SEC-ECR-005",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "payments-api:latest",
+    "resource_type": "AWS::ECR::Image",
+    "severity": "CRITICAL",
+    "title": "Latest ECR image has CRITICAL vulnerabilities",
+    "recommendation": "Rebuild payments-api on a patched base image; 2 CRITICAL CVEs found.",
+    "evidence": {
+      "critical": 2,
+      "high": 7
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T05:04:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-ECR-005#payments-api:latest"
+  },
+  {
+    "rule_id": "BDR-001",
+    "domain": "backup-dr",
+    "account_id": "222222222222",
+    "region": "us-west-2",
+    "resource_id": "none",
+    "resource_type": "AWS::Backup::BackupPlan",
+    "severity": "CRITICAL",
+    "title": "No AWS Backup plans configured",
+    "recommendation": "Create AWS Backup plans: daily/7-day, weekly/30-day and monthly/1-year retention, assigned by a Backup=required tag.",
+    "evidence": {
+      "plan_count": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:57:00+00:00",
+    "finding_id": "222222222222#us-west-2#BDR-001#none"
+  },
+  {
+    "rule_id": "SEC-IAM-002",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "alice.dev",
+    "resource_type": "AWS::IAM::User",
+    "severity": "HIGH",
+    "title": "Console IAM user without MFA",
+    "recommendation": "Enable MFA for console user alice.dev.",
+    "evidence": {
+      "password_last_used_days": 2
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:50:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-IAM-002#alice.dev"
+  },
+  {
+    "rule_id": "SEC-IAM-003",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "AKIAEXAMPLE00000001",
+    "resource_type": "AWS::IAM::AccessKey",
+    "severity": "HIGH",
+    "title": "Access key not rotated",
+    "recommendation": "Rotate access key AKIAEXAMPLE00000001 (age 212 days).",
+    "evidence": {
+      "age_days": 212,
+      "max_age_days": 90
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:43:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-IAM-003#AKIAEXAMPLE00000001"
+  },
+  {
+    "rule_id": "SEC-IAM-005",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "ci-deployer",
+    "resource_type": "AWS::IAM::User",
+    "severity": "HIGH",
+    "title": "IAM user has administrative managed policy",
+    "recommendation": "Replace AdministratorAccess on ci-deployer with a scoped policy or role.",
+    "evidence": {
+      "policy_arn": "arn:aws:iam::aws:policy/AdministratorAccess"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:36:00+00:00",
+    "finding_id": "222222222222#us-east-1#SEC-IAM-005#ci-deployer"
+  },
+  {
+    "rule_id": "SEC-S3-001",
+    "domain": "security",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "dev-scratch-uploads",
+    "resource_type": "AWS::S3::Bucket",
+    "severity": "HIGH",
+    "title": "S3 public access not fully blocked",
+    "recommendation": "Enable all four Block Public Access settings on dev-scratch-uploads.",
+    "evidence": {
+      "block_public_acls": false,
+      "restrict_public_buckets": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:29:00+00:00",
+    "finding_id": "333333333333#us-east-1#SEC-S3-001#dev-scratch-uploads"
+  },
+  {
+    "rule_id": "NET-SG-002",
+    "domain": "network-security",
+    "account_id": "222222222222",
+    "region": "us-west-2",
+    "resource_id": "sg-0a1b2c3d4e5f60002",
+    "resource_type": "AWS::EC2::SecurityGroup",
+    "severity": "HIGH",
+    "title": "Security group exposes a dangerous port to the internet",
+    "recommendation": "Restrict port 22 on sg-0a1b2c3d4e5f60002 to known CIDRs or use SSM Session Manager.",
+    "evidence": {
+      "port": 22,
+      "cidr": "0.0.0.0/0"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:22:00+00:00",
+    "finding_id": "222222222222#us-west-2#NET-SG-002#sg-0a1b2c3d4e5f60002"
+  },
+  {
+    "rule_id": "NET-VPC-001",
+    "domain": "network-security",
+    "account_id": "111111111111",
+    "region": "eu-west-1",
+    "resource_id": "vpc-0f1e2d3c4b5a60003",
+    "resource_type": "AWS::EC2::VPC",
+    "severity": "HIGH",
+    "title": "VPC flow logs not enabled",
+    "recommendation": "Enable VPC Flow Logs on vpc-0f1e2d3c4b5a60003 to CloudWatch Logs or S3.",
+    "evidence": {
+      "flow_logs": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:15:00+00:00",
+    "finding_id": "111111111111#eu-west-1#NET-VPC-001#vpc-0f1e2d3c4b5a60003"
+  },
+  {
+    "rule_id": "SEC-LMB-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "legacy-report-builder",
+    "resource_type": "AWS::Lambda::Function",
+    "severity": "HIGH",
+    "title": "Lambda uses a deprecated runtime",
+    "recommendation": "Upgrade legacy-report-builder from python3.8 to python3.12.",
+    "evidence": {
+      "runtime": "python3.8"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:08:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-LMB-001#legacy-report-builder"
+  },
+  {
+    "rule_id": "SEC-LMB-002",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "stripe-webhook",
+    "resource_type": "AWS::Lambda::Function",
+    "severity": "HIGH",
+    "title": "Lambda env var may hold a plaintext secret",
+    "recommendation": "Move STRIPE_SECRET_KEY on stripe-webhook to Secrets Manager.",
+    "evidence": {
+      "env_var": "STRIPE_SECRET_KEY"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T04:01:00+00:00",
+    "finding_id": "222222222222#us-east-1#SEC-LMB-002#stripe-webhook"
+  },
+  {
+    "rule_id": "SEC-KMS-003",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-west-2",
+    "resource_id": "1234abcd-12ab-34cd-56ef-1234567890ab",
+    "resource_type": "AWS::KMS::Key",
+    "severity": "HIGH",
+    "title": "KMS key pending deletion",
+    "recommendation": "Cancel deletion of the key if any resource still depends on it.",
+    "evidence": {
+      "deletion_date": "2026-11-19"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:54:00+00:00",
+    "finding_id": "222222222222#us-west-2#SEC-KMS-003#1234abcd-12ab-34cd-56ef-1234567890ab"
+  },
+  {
+    "rule_id": "BDR-007",
+    "domain": "backup-dr",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "daily-prod-plan",
+    "resource_type": "AWS::Backup::BackupJob",
+    "severity": "HIGH",
+    "title": "Backup jobs failing",
+    "recommendation": "Investigate 6 failed backup jobs in the last 7 days for daily-prod-plan.",
+    "evidence": {
+      "failed_jobs_7d": 6
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:47:00+00:00",
+    "finding_id": "111111111111#us-east-1#BDR-007#daily-prod-plan"
+  },
+  {
+    "rule_id": "INC-DET-002",
+    "domain": "incident",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "tg-checkout-web",
+    "resource_type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+    "severity": "HIGH",
+    "title": "Load balancer targets unhealthy",
+    "recommendation": "Check health of targets in tg-checkout-web; 3 of 6 unhealthy.",
+    "evidence": {
+      "unhealthy": 3,
+      "total": 6
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:40:00+00:00",
+    "finding_id": "111111111111#us-east-1#INC-DET-002#tg-checkout-web"
+  },
+  {
+    "rule_id": "COST-RDS-001",
+    "domain": "cost",
+    "account_id": "333333333333",
+    "region": "us-west-2",
+    "resource_id": "analytics-replica-old",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "HIGH",
+    "title": "Idle RDS database",
+    "recommendation": "analytics-replica-old had 0 connections in 30 days; snapshot and delete it.",
+    "evidence": {
+      "max_connections_30d": 0,
+      "instance_class": "db.r6g.xlarge"
+    },
+    "estimated_monthly_saving": 412.8,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:33:00+00:00",
+    "finding_id": "333333333333#us-west-2#COST-RDS-001#analytics-replica-old"
+  },
+  {
+    "rule_id": "SEC-EKS-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "eu-west-1",
+    "resource_id": "platform-eks",
+    "resource_type": "AWS::EKS::Cluster",
+    "severity": "HIGH",
+    "title": "EKS API endpoint public with no IP restriction",
+    "recommendation": "Restrict publicAccessCidrs on platform-eks or make the endpoint private.",
+    "evidence": {
+      "public_access_cidrs": [
+        "0.0.0.0/0"
+      ]
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:26:00+00:00",
+    "finding_id": "111111111111#eu-west-1#SEC-EKS-001#platform-eks"
+  },
+  {
+    "rule_id": "IAM-AA-003",
+    "domain": "access-analyzer",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "AKIAEXAMPLE00000002",
+    "resource_type": "AWS::IAM::AccessKey",
+    "severity": "MEDIUM",
+    "title": "Unused active access key",
+    "recommendation": "Deactivate and delete access key AKIAEXAMPLE00000002 (unused 140 days); prefer IAM roles over long-lived keys.",
+    "evidence": {
+      "days_unused": 140
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:19:00+00:00",
+    "finding_id": "333333333333#us-east-1#IAM-AA-003#AKIAEXAMPLE00000002"
+  },
+  {
+    "rule_id": "IAM-AA-004",
+    "domain": "access-analyzer",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "old-etl-role",
+    "resource_type": "AWS::IAM::Role",
+    "severity": "MEDIUM",
+    "title": "Unused IAM role with permissions",
+    "recommendation": "Confirm whether old-etl-role (unused 210 days) is needed; if not, detach its policies and delete it.",
+    "evidence": {
+      "days_unused": 210
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:12:00+00:00",
+    "finding_id": "222222222222#us-east-1#IAM-AA-004#old-etl-role"
+  },
+  {
+    "rule_id": "SEC-S3-004",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "acme-invoices",
+    "resource_type": "AWS::S3::Bucket",
+    "severity": "MEDIUM",
+    "title": "S3 versioning not enabled",
+    "recommendation": "Enable versioning on acme-invoices.",
+    "evidence": {
+      "versioning": "Disabled"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T03:05:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-S3-004#acme-invoices"
+  },
+  {
+    "rule_id": "SEC-CT-002",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "org-trail",
+    "resource_type": "AWS::CloudTrail::Trail",
+    "severity": "MEDIUM",
+    "title": "CloudTrail log file validation disabled",
+    "recommendation": "Enable log file validation on org-trail.",
+    "evidence": {
+      "log_file_validation": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:58:00+00:00",
+    "finding_id": "222222222222#us-east-1#SEC-CT-002#org-trail"
+  },
+  {
+    "rule_id": "SEC-KMS-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-west-2",
+    "resource_id": "5678efgh-12ab-34cd-56ef-1234567890cd",
+    "resource_type": "AWS::KMS::Key",
+    "severity": "MEDIUM",
+    "title": "KMS key rotation not enabled",
+    "recommendation": "Enable automatic annual rotation on the key.",
+    "evidence": {
+      "rotation_enabled": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:51:00+00:00",
+    "finding_id": "111111111111#us-west-2#SEC-KMS-001#5678efgh-12ab-34cd-56ef-1234567890cd"
+  },
+  {
+    "rule_id": "SEC-SEC-001",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "prod/db/master",
+    "resource_type": "AWS::SecretsManager::Secret",
+    "severity": "MEDIUM",
+    "title": "Secret rotation not enabled",
+    "recommendation": "Enable rotation on prod/db/master with a rotation Lambda.",
+    "evidence": {
+      "rotation_enabled": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:44:00+00:00",
+    "finding_id": "111111111111#us-east-1#SEC-SEC-001#prod/db/master"
+  },
+  {
+    "rule_id": "SEC-RDS-003",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-west-2",
+    "resource_id": "orders-db-stg",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "MEDIUM",
+    "title": "RDS instance deletion protection disabled",
+    "recommendation": "Enable deletion protection on orders-db-stg.",
+    "evidence": {
+      "deletion_protection": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:37:00+00:00",
+    "finding_id": "222222222222#us-west-2#SEC-RDS-003#orders-db-stg"
+  },
+  {
+    "rule_id": "RDS-003",
+    "domain": "infrastructure",
+    "account_id": "111111111111",
+    "region": "eu-west-1",
+    "resource_id": "eu-customers-db",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "MEDIUM",
+    "title": "RDS instance not Multi-AZ",
+    "recommendation": "Convert eu-customers-db to Multi-AZ.",
+    "evidence": {
+      "multi_az": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:30:00+00:00",
+    "finding_id": "111111111111#eu-west-1#RDS-003#eu-customers-db"
+  },
+  {
+    "rule_id": "COST-EC2-001",
+    "domain": "cost",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "i-0abc1234def560001",
+    "resource_type": "AWS::EC2::Instance",
+    "severity": "MEDIUM",
+    "title": "Idle EC2 instance",
+    "recommendation": "i-0abc1234def560001 averaged 1.2% CPU over 14 days; stop or downsize it.",
+    "evidence": {
+      "avg_cpu_14d": 1.2,
+      "instance_type": "m5.2xlarge"
+    },
+    "estimated_monthly_saving": 280.32,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:23:00+00:00",
+    "finding_id": "333333333333#us-east-1#COST-EC2-001#i-0abc1234def560001"
+  },
+  {
+    "rule_id": "COST-RDS-002",
+    "domain": "cost",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "reporting-db-stg",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "MEDIUM",
+    "title": "Oversized RDS instance (low CPU)",
+    "recommendation": "Downsize reporting-db-stg from db.r6g.2xlarge to db.r6g.large.",
+    "evidence": {
+      "avg_cpu_14d": 4.8,
+      "instance_class": "db.r6g.2xlarge"
+    },
+    "estimated_monthly_saving": 520.0,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:16:00+00:00",
+    "finding_id": "222222222222#us-east-1#COST-RDS-002#reporting-db-stg"
+  },
+  {
+    "rule_id": "COST-S3-001",
+    "domain": "cost",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "acme-app-logs",
+    "resource_type": "AWS::S3::Bucket",
+    "severity": "MEDIUM",
+    "title": "S3 bucket has no lifecycle policy",
+    "recommendation": "Add a lifecycle rule to transition acme-app-logs objects to IA after 30 days.",
+    "evidence": {
+      "size_gb": 4200
+    },
+    "estimated_monthly_saving": 96.6,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:09:00+00:00",
+    "finding_id": "111111111111#us-east-1#COST-S3-001#acme-app-logs"
+  },
+  {
+    "rule_id": "INC-DET-003",
+    "domain": "incident",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "order-notifier",
+    "resource_type": "AWS::Lambda::Function",
+    "severity": "MEDIUM",
+    "title": "Lambda error spike",
+    "recommendation": "Investigate order-notifier: error rate 8.4% in last hour.",
+    "evidence": {
+      "error_rate_pct": 8.4
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T02:02:00+00:00",
+    "finding_id": "111111111111#us-east-1#INC-DET-003#order-notifier"
+  },
+  {
+    "rule_id": "NET-DNS-001",
+    "domain": "network-security",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "vpc-0f1e2d3c4b5a60004",
+    "resource_type": "AWS::Route53Resolver::ResolverQueryLoggingConfig",
+    "severity": "MEDIUM",
+    "title": "DNS query logging not enabled for VPC",
+    "recommendation": "Associate a Resolver query logging config with vpc-0f1e2d3c4b5a60004.",
+    "evidence": {},
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:55:00+00:00",
+    "finding_id": "111111111111#us-east-1#NET-DNS-001#vpc-0f1e2d3c4b5a60004"
+  },
+  {
+    "rule_id": "BDR-004",
+    "domain": "backup-dr",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "daily-prod-plan",
+    "resource_type": "AWS::Backup::BackupPlan",
+    "severity": "MEDIUM",
+    "title": "No backup plan has cross-region copy",
+    "recommendation": "Add CopyActions to backup rules that copy to a secondary region with an existing destination vault.",
+    "evidence": {
+      "copy_actions": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:48:00+00:00",
+    "finding_id": "111111111111#us-east-1#BDR-004#daily-prod-plan"
+  },
+  {
+    "rule_id": "COST-EC2-003",
+    "domain": "cost",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "vol-0aa11bb22cc330001",
+    "resource_type": "AWS::EC2::Volume",
+    "severity": "LOW",
+    "title": "Unattached EBS volume",
+    "recommendation": "Snapshot and delete unattached volume vol-0aa11bb22cc330001 (500 GiB gp2).",
+    "evidence": {
+      "size_gib": 500,
+      "days_unattached": 64
+    },
+    "estimated_monthly_saving": 50.0,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:41:00+00:00",
+    "finding_id": "333333333333#us-east-1#COST-EC2-003#vol-0aa11bb22cc330001"
+  },
+  {
+    "rule_id": "COST-EC2-004",
+    "domain": "cost",
+    "account_id": "884458154630",
+    "region": "us-east-1",
+    "resource_id": "eipalloc-052066d5ae713256d",
+    "resource_type": "AWS::EC2::EIP",
+    "severity": "CRITICAL",
+    "title": "Unused Elastic IP",
+    "recommendation": "Release unused Elastic IP eipalloc-052066d5ae713256d.",
+    "evidence": {
+      "associated": false
+    },
+    "estimated_monthly_saving": 3.65,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:34:00+00:00",
+    "finding_id": "884458154630#us-east-1#COST-EC2-004#eipalloc-052066d5ae713256d"
+  },
+  {
+    "rule_id": "COST-EC2-005",
+    "domain": "cost",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "i-0abc1234def560002",
+    "resource_type": "AWS::EC2::Instance",
+    "severity": "LOW",
+    "title": "Previous-generation EC2 instance type",
+    "recommendation": "Move i-0abc1234def560002 from m4.large to m7g.large.",
+    "evidence": {
+      "instance_type": "m4.large"
+    },
+    "estimated_monthly_saving": 18.25,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:27:00+00:00",
+    "finding_id": "111111111111#us-east-1#COST-EC2-005#i-0abc1234def560002"
+  },
+  {
+    "rule_id": "COST-RDS-004",
+    "domain": "cost",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "manual-snap-2024-01-10",
+    "resource_type": "AWS::RDS::DBSnapshot",
+    "severity": "LOW",
+    "title": "Old manual RDS snapshot",
+    "recommendation": "Delete manual snapshot manual-snap-2024-01-10 (age 1030 days) if no longer needed.",
+    "evidence": {
+      "age_days": 1030,
+      "size_gb": 200
+    },
+    "estimated_monthly_saving": 19.0,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:20:00+00:00",
+    "finding_id": "333333333333#us-east-1#COST-RDS-004#manual-snap-2024-01-10"
+  },
+  {
+    "rule_id": "EC2-003",
+    "domain": "infrastructure",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "snap-0fedcba9876540001",
+    "resource_type": "AWS::EC2::Snapshot",
+    "severity": "LOW",
+    "title": "EBS snapshot older than 90 days",
+    "recommendation": "Review and delete snap-0fedcba9876540001 (age 300 days).",
+    "evidence": {
+      "age_days": 300
+    },
+    "estimated_monthly_saving": 7.5,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:13:00+00:00",
+    "finding_id": "222222222222#us-east-1#EC2-003#snap-0fedcba9876540001"
+  },
+  {
+    "rule_id": "TAG-001",
+    "domain": "infrastructure",
+    "account_id": "333333333333",
+    "region": "us-west-2",
+    "resource_id": "i-0abc1234def560003",
+    "resource_type": "AWS::EC2::Instance",
+    "severity": "LOW",
+    "title": "EC2 instance missing required tags",
+    "recommendation": "Add Owner and CostCenter tags to i-0abc1234def560003.",
+    "evidence": {
+      "missing_tags": [
+        "Owner",
+        "CostCenter"
+      ]
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T01:06:00+00:00",
+    "finding_id": "333333333333#us-west-2#TAG-001#i-0abc1234def560003"
+  },
+  {
+    "rule_id": "SEC-IAM-007",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-east-1",
+    "resource_id": "bob.ops",
+    "resource_type": "AWS::IAM::User",
+    "severity": "LOW",
+    "title": "IAM user has inline policies",
+    "recommendation": "Move bob.ops inline policies into managed policies attached to a group.",
+    "evidence": {
+      "inline_policies": 2
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:59:00+00:00",
+    "finding_id": "222222222222#us-east-1#SEC-IAM-007#bob.ops"
+  },
+  {
+    "rule_id": "SEC-S3-006",
+    "domain": "security",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "dev-terraform-state",
+    "resource_type": "AWS::S3::Bucket",
+    "severity": "LOW",
+    "title": "S3 bucket has no lifecycle policy",
+    "recommendation": "Add a lifecycle policy to dev-terraform-state.",
+    "evidence": {},
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:52:00+00:00",
+    "finding_id": "333333333333#us-east-1#SEC-S3-006#dev-terraform-state"
+  },
+  {
+    "rule_id": "SEC-SG-006",
+    "domain": "security",
+    "account_id": "333333333333",
+    "region": "us-east-1",
+    "resource_id": "sg-0a1b2c3d4e5f60005",
+    "resource_type": "AWS::EC2::SecurityGroup",
+    "severity": "LOW",
+    "title": "Security group not attached to any resource",
+    "recommendation": "Delete unused security group sg-0a1b2c3d4e5f60005.",
+    "evidence": {
+      "attached_enis": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:45:00+00:00",
+    "finding_id": "333333333333#us-east-1#SEC-SG-006#sg-0a1b2c3d4e5f60005"
+  },
+  {
+    "rule_id": "SEC-SEC-002",
+    "domain": "security",
+    "account_id": "222222222222",
+    "region": "us-west-2",
+    "resource_id": "stg/legacy/api-key",
+    "resource_type": "AWS::SecretsManager::Secret",
+    "severity": "LOW",
+    "title": "Secret not accessed recently",
+    "recommendation": "Delete stg/legacy/api-key if unused (last accessed 180 days ago).",
+    "evidence": {
+      "days_since_access": 180
+    },
+    "estimated_monthly_saving": 0.4,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:38:00+00:00",
+    "finding_id": "222222222222#us-west-2#SEC-SEC-002#stg/legacy/api-key"
+  },
+  {
+    "rule_id": "SEC-RDS-005",
+    "domain": "security",
+    "account_id": "111111111111",
+    "region": "us-west-2",
+    "resource_id": "orders-db-prod",
+    "resource_type": "AWS::RDS::DBInstance",
+    "severity": "LOW",
+    "title": "RDS auto minor version upgrade disabled",
+    "recommendation": "Enable AutoMinorVersionUpgrade on orders-db-prod.",
+    "evidence": {
+      "auto_minor_version_upgrade": false
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:31:00+00:00",
+    "finding_id": "111111111111#us-west-2#SEC-RDS-005#orders-db-prod"
+  },
+  {
+    "rule_id": "NET-VPC-005",
+    "domain": "network-security",
+    "account_id": "333333333333",
+    "region": "eu-west-1",
+    "resource_id": "igw-0123abcd4567ef001",
+    "resource_type": "AWS::EC2::InternetGateway",
+    "severity": "LOW",
+    "title": "Detached Internet Gateway",
+    "recommendation": "Delete detached internet gateway igw-0123abcd4567ef001.",
+    "evidence": {
+      "attachments": 0
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:24:00+00:00",
+    "finding_id": "333333333333#eu-west-1#NET-VPC-005#igw-0123abcd4567ef001"
+  },
+  {
+    "rule_id": "COST-ANO-001",
+    "domain": "cost-anomaly",
+    "account_id": "111111111111",
+    "region": "us-east-1",
+    "resource_id": "anomaly-7f3e2a",
+    "resource_type": "AWS::CostExplorer::Anomaly",
+    "severity": "LOW",
+    "title": "Cost anomaly detected",
+    "recommendation": "Review the Amazon EC2 spend anomaly: $142 above expected on 2026-11-03.",
+    "evidence": {
+      "impact_usd": 142.0,
+      "service": "Amazon EC2"
+    },
+    "estimated_monthly_saving": null,
+    "ruleset_version": "1.0",
+    "detected_at": "2026-11-05T00:17:00+00:00",
+    "finding_id": "111111111111#us-east-1#COST-ANO-001#anomaly-7f3e2a"
+  }
+]

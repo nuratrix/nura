@@ -1,0 +1,22 @@
+[project]
+name = "nura"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["boto3", "pydantic", "jsonschema"]
+
+[project.optional-dependencies]
+agents = ["strands-agents", "bedrock-agentcore", "aws-opentelemetry-distro>=0.10.1", "python-dotenv"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Installs src/ into the venv (editable), so `python -m agents...` works from any folder.
+[tool.hatch.build.targets.wheel]
+packages = ["src/agents", "src/common", "src/pipeline"]
+
+[dependency-groups]
+dev = ["pytest", "moto", "bedrock-agentcore-starter-toolkit"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
