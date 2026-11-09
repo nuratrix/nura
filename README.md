@@ -42,7 +42,7 @@ A finding moves through these steps:
 3. **Invoker Lambda.** Takes one message at a time, with limited concurrency, and calls the AgentCore runtime. After 3 failed attempts a finding goes to a dead-letter queue, so it is never lost.
 4. **Orchestrator on Bedrock AgentCore Runtime.** One container holding the orchestrator and all nine domain agents:
    - **Routing** (code): the finding's rule ID picks the owning agent and any secondary agents from the rulesets in [`rulesets/`](rulesets/).
-   - **Synthesis** (the only model step): each agent (Amazon Nova Pro, via Strands Agents) uses read-only tools and returns a structured opinion. The tools cover resource tags, CloudTrail activity and Cost Explorer, and for the security agent also resource policies, network exposure, IAM identity power, and GuardDuty / Security Hub / Access Analyzer findings.
+   - **Synthesis** (the only model step): each agent (Amazon Nova Pro, via Strands Agents) uses read-only tools and returns a structured opinion. Every agent can read resource tags and CloudTrail activity; each also has tools for its own domain (see [Domain agents and their tools](#domain-agents-and-their-tools)).
      - If the rule recommends an action, the owner agent confirms it or softens it.
      - If the rule recommends none (most security rules), the owner agent *assesses* the finding: no action, monitor, or a containment action proposed to a person.
    - **Conflict rules** (code): a fixed table settles disagreements between agents, such as evidence hold vs. delete or approved change vs. cleanup. Anything the rules don't cover goes to a human.
@@ -185,15 +185,38 @@ evals/
 
 The decision log already stores everything needed to create cases, so the harness only needs the replay and scoring code.
 
+## Domain agents and their tools
+
+Each agent is a module in [`src/agents/subagents/`](src/agents/subagents/) exposing `build_agent()`. Its tools live in [`src/agents/tools/context/`](src/agents/tools/context/) and follow the same rules:
+
+- **The finding names the resource.** A tool takes no resource argument: it reads the resource, account and region from the finding under review. The model can only choose a time window or a grouping, and a unit test checks this for every tool of every agent.
+- **Read-only, facts not verdicts.** Tools describe; the agent judges.
+- **One failed call never hides the rest.** Each AWS call is tried on its own. A failure is listed in the tool's `errors`; "not configured" (no bucket policy, no Security Hub) is reported as a fact.
+- **No data contents.** No object contents, secret values or log lines (log tools return counts only), and policies are summarised rather than returned raw.
+
+| Agent | Owns | Tools beyond tags and CloudTrail |
+|---|---|---|
+| cost | cost cleanups | Cost Explorer: EC2 / RDS / S3 spend, reservations |
+| cost-anomaly | anomalies, spend spikes, anomaly-detection coverage | `get_anomaly_details` (Cost Anomaly Detection), `get_spend_breakdown` (daily spend by usage type, region, ...), `get_recent_changes` |
+| security | 79 security rules | `get_resource_policy`, `get_network_exposure`, `get_principal_access`, `get_security_signals` (GuardDuty, Security Hub, Access Analyzer) |
+| network-security | open security groups / NACLs, flow logs, DNS, peering, transit gateways | `get_network_config` (VPC fabric: real public subnets, NACL order, peers inside or outside the organization), `get_network_exposure`, `get_security_signals` |
+| access-analyzer | external / unused access, MFA | `get_analyzer_findings`, `get_service_last_accessed` (granted vs actually used services), `get_principal_access`, `get_resource_policy` |
+| compliance | CIS / SOC 2 / Config controls | `get_control_evidence` (live control state, including organization trails and prefixed organization Config rules), `get_compliance_scope` (frameworks the account actually tracks), `get_principal_access`, `get_resource_state` |
+| infrastructure | cleanups and configuration of EC2, EBS, RDS, VPC | `get_resource_state` (exists? idle how long? what depends on it?), `get_resource_metrics`, `get_network_exposure` |
+| backup-dr | backup plans, vaults, jobs, recovery points; guards deletes as a secondary | `get_backup_posture` (plans, copies, failed and running jobs, restore tests, recovery points), `get_resource_state` |
+| incident | alarms, unhealthy targets, errors, degraded services | `get_service_health`, `get_alarms`, `get_resource_metrics`, `get_recent_changes`, `get_security_signals` |
+
+Run any agent against a sample finding (Bedrock plus read-only AWS calls, nothing written): `uv run python -m agents.subagents.<module> <RULE_ID>`.
+
 ## Repository layout
 
 ```
 src/
   agents/
     orchestrator/   routing, synthesize (LLM step), conflict rules, remediation, orchestrator_agent
-    subagents/      one module per domain agent (cost and security built; see Status), shared model.py
-    tools/context/  read-only agent tools: tags, CloudTrail, Cost Explorer, security (policy,
-                    network exposure, IAM identity, GuardDuty / Security Hub / Access Analyzer)
+    subagents/      one module per domain agent (all nine), shared model.py
+    tools/context/  read-only agent tools, one module per area (see Domain agents and their tools);
+                    aws_calls.py: shared per-call error handling
     runtime/app.py  AgentCore entrypoint (POST /invocations {"finding_id": ...})
   common/           findings repo (DynamoDB), decision log (S3 Object Lock), SNS publisher, sessions
   pipeline/         stream_triage.py (triage Lambda), invoker.py (invoker Lambda), triage.py (batch/local)
@@ -327,6 +350,7 @@ uv run pytest                                   # unit tests, no AWS calls
 uv run python -m agents.subagents.cost_agent COST-EC2-004             # judge a sample finding (Bedrock + AWS reads)
 uv run python -m agents.subagents.cost_agent COST-EC2-004 --publish   # also write the decision log + publish to SNS
 uv run python -m agents.subagents.security_agent SEC-S3-002           # assess a sample security finding
+uv run python -m agents.subagents.compliance_agent COMP-CIS-012        # any agent: python -m agents.subagents.<module> <RULE_ID>
 uv run python rulesets/validate_rule_sets.py    # validate the rule catalog
 ```
 
@@ -353,9 +377,8 @@ The Findings table and decision log bucket are **kept** when the stack is delete
 |---|---|
 | Triage (stream), queues, invoker, decision log, SNS | Built |
 | Orchestrator: routing, synthesis, conflict rules, remediation policy | Built |
-| Cost agent | Built |
-| Security agent | Built: assesses all 79 security rules (none carry a recommended action), with exposure, identity and threat-detection tools |
-| Other seven domain agents | Planned. Until built, an owner agent falls back to the rule's recommended action (marked `source: fallback`), or to `NO_ACTION` when the rule has none, and a missing secondary agent escalates the finding to a human |
+| Domain agents (all nine) | Built, with read-only tools per domain. Unit-tested with stubbed AWS; live-tested read-only so far: security, compliance, infrastructure (+ backup-DR as secondary) |
+| `needs_review` reliability | Nova Pro does not reliably set it, even when the prompt names the exact condition (seen on a non-logging CloudTrail). Candidate fix: a deterministic escalation rule in code |
 | Golden dataset and evaluation harness (`evals/`) | Planned. See [Evaluating the judgments](#evaluating-the-judgments) |
 | CloudWatch alarms (DLQ depth, message age), dashboards, daily briefing | Planned |
 | Decision log in a separate Log Archive account | Planned |

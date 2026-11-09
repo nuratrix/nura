@@ -11,53 +11,19 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
 
-from botocore.exceptions import ClientError
 from strands import ToolContext, tool
 
+from agents.tools.context.aws_calls import ABSENT as _ABSENT, MAX_ITEMS, as_list as _as_list, call as _call
+from agents.tools.context.aws_calls import days_since as _days_since, name_of as _name, result as _result
 from agents.tools.context.finding_context import current_finding, finding_session, resource_arn
 
 OPEN_CIDRS = ("0.0.0.0/0", "::/0")
 PUBLIC_ACL_GROUPS = ("http://acs.amazonaws.com/groups/global/AllUsers",
                      "http://acs.amazonaws.com/groups/global/AuthenticatedUsers")
-MAX_ITEMS = 10
-_ABSENT = object()   # the thing asked for isn't configured (e.g. no bucket policy)
 
 
 # ---------------------------------------------------------------- helpers
-
-def _call(errors: list, label: str, fn, *args, absent: tuple = (), **kwargs):
-    """Run one AWS call. Returns the response, _ABSENT for an error code meaning
-    'not configured', or None after recording the failure in `errors`."""
-    try:
-        return fn(*args, **kwargs)
-    except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", "")
-        if code in absent:
-            return _ABSENT
-        errors.append(f"{label}: {code or type(e).__name__}: {e.response.get('Error', {}).get('Message', '')}")
-    except Exception as e:  # noqa: BLE001 - endpoint, throttling, parameter errors
-        errors.append(f"{label}: {type(e).__name__}: {e}")
-    return None
-
-
-def _days_since(ts) -> int | None:
-    if not ts:
-        return None
-    if isinstance(ts, str):
-        ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    return (datetime.now(timezone.utc) - ts).days
-
-
-def _as_list(v) -> list:
-    return v if isinstance(v, list) else ([] if v is None else [v])
-
-
-def _name(resource_id: str) -> str:
-    """Last path segment of an ARN (user/role names), or the id itself."""
-    return resource_id.rsplit("/", 1)[-1] if resource_id.startswith("arn:") else resource_id
-
 
 def summarize_policy(document, own_account: str) -> dict:
     """Who a resource / trust policy lets in from outside the account. Allow statements only.
@@ -119,11 +85,6 @@ def _open_ingress(ec2, group_ids: list, errors: list) -> list[dict]:
                               "ports": "all" if proto == "-1" else f"{perm.get('FromPort')}-{perm.get('ToPort')}",
                               "source": cidr})
     return rules
-
-
-def _result(finding, errors, **facts) -> dict:
-    return {"resource_type": finding["resource_type"], "resource_id": finding["resource_id"],
-            **facts, "errors": errors}
 
 
 # ---------------------------------------------------------------- 1. resource policy

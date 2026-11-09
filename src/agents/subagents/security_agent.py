@@ -30,6 +30,8 @@ SYSTEM_PROMPT = (
     "CloudTrail activity (who changed it, whether root or an unexpected identity acted).\n"
     "- A public grant restricted by a condition (aws:SourceVpce, aws:PrincipalOrgID, aws:SourceIp) is "
     "not the same as an unconditional one; say which it is.\n"
+    "- Call only the tools that apply to this resource type: an IAM identity or root account has no "
+    "resource policy or network exposure to check.\n"
     "\n"
     "How to choose:\n"
     "- NO_ACTION: your tools show it is not a real risk (approved exception tag, resource no longer "
