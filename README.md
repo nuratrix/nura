@@ -77,6 +77,7 @@ Nura lets agents make recommendations, but only inside a frame that keeps them *
 - **Answers are grounded in evidence.** Agents answer from the stored finding and their tool output, never from general training knowledge, and the prompt states that missing data proves nothing.
 - **Opinions are structured.** Each has an action, rationale, evidence and observations (related risk, data quality, ruleset gaps), plus a `needs_review` flag when the agent isn't sure. Because they're structured rather than free text, they can be compared and scored.
 - **The deterministic steps are unit-tested.** Routing, conflict resolution, remediation, triage and the decision log are all covered (`uv run pytest`). The model step is tested with fake agents, so the surrounding logic is checked without calling Bedrock.
+- **The model step is measured against a golden dataset** using suppression rate, fabrication rate and a confusion matrix. See [Evaluating the judgments](#evaluating-the-judgments).
 
 ### Auditable: every decision, LOW to CRITICAL, in a WORM log
 - **One immutable record per decision, in S3 with Object Lock.** Each record is checksummed (SHA-256) and written with `If-None-Match`, so an existing record can never be overwritten.
@@ -85,6 +86,101 @@ Nura lets agents make recommendations, but only inside a frame that keeps them *
   - `triage/`: LOW/MEDIUM records with their catalog recommendation.
 - **Locks can't be removed early.** On a bucket this project creates, the bucket policy denies `s3:BypassGovernanceRetention` to everyone, so removing a lock early first requires editing the policy, and CloudTrail records that edit.
 - **Every SNS message links to its record** (`decision_record: s3://…`), so each notification points at evidence that already exists.
+
+## Evaluating the judgments
+
+Unit tests prove that the code around the model behaves. They can't tell you whether the agents' *judgments* are any good. For that, Nura measures the model step against a **golden dataset**: a set of findings where people have agreed the correct decision in advance.
+
+### Why it pays off
+
+The agents can make two kinds of mistake, and they aren't equally costly:
+
+- **Wrongly holding back** ("don't release this IP, it's in use") leaves risk or waste in place and hides it behind an agent's reasoning.
+- **Wrongly going ahead** ("safe to delete") is the mistake approval gates exist to catch.
+
+A golden dataset turns "the agent seems sensible" into numbers you can track. Those numbers let you:
+
+- **Gate changes.** Run the set before changing a prompt, a model (for example Nova Pro → Claude), a tool or a ruleset. A change that raises false suppression or fabrication doesn't ship.
+- **Earn autonomy rule by rule.** Move a rule from `APPROVAL` to `AUTO` only once its golden cases show high agreement and zero false suppressions. Autonomy is granted on evidence, not trust.
+- **Find weak spots.** The confusion matrix shows *which* rules, domains or situations the agents get wrong, such as production tags, missing data or conflicting agents. That tells you whether to fix a prompt, a tool, a conflict rule or the ruleset.
+- **Give auditors evidence.** The scores, and the dataset they came from, show that the Evaluable pillar is measured and not just claimed.
+
+### Building the golden dataset
+
+Each golden case is a finding plus the context the agent will see, plus the expected answer:
+
+```jsonc
+{
+  "case_id": "cost-eip-tag-only-activity",
+  "finding": { "rule_id": "COST-EC2-004", "severity": "CRITICAL", "resource_id": "eipalloc-...", "...": "..." },
+  "context": {                       // recorded tool outputs, replayed instead of calling AWS
+    "get_resource_tags": { "tags": {"env": "prod", "project": "nura"} },
+    "get_recent_activity": { "events": [{"EventName": "CreateTags", "Username": "..."}] }
+  },
+  "expected": {
+    "decision": "PROCEED",           // PROCEED | HOLD | ESCALATE
+    "action": "DELETE",
+    "must_not_claim": ["resource is attached", "in use"],
+    "why": "Tag-only changes are not evidence of use; the EIP is still unassociated."
+  }
+}
+```
+
+Where cases come from:
+
+- **Real decisions.** Every record in the decision log already holds the finding, each opinion and its tool trace. When a reviewer confirms or corrects a decision, that record becomes a golden case. The dataset grows from production.
+- **Known traps,** written on purpose. For example:
+  - a `do-not-delete` or `nura:exception` tag;
+  - recent write activity by a person versus by a pipeline;
+  - tag-only changes, like `CreateTags`, that aren't evidence of use;
+  - a resource that doesn't exist, where missing data proves nothing;
+  - a production tag on an obviously idle resource;
+  - two agents that should disagree.
+- **Coverage.** At least a few cases per rule that reaches the agents, across all nine domains as their agents are built.
+
+Two of the traps above have already happened in testing the cost agent:
+- It treated a `CreateTags` event as proof an Elastic IP was in use, a **false suppression**.
+- With a made-up allocation ID, it reasoned "untagged, so safe to release". That is a conclusion drawn from missing data, and the `must_not_claim` checks are designed to catch it.
+
+Each of these is a golden case.
+
+**Replaying the recorded tool outputs** (the `context` above) instead of calling AWS keeps runs repeatable and cheap, and means the model is scored on the same facts every time. Run each case several times to see how much the model varies between runs.
+
+### The metrics
+
+Each run maps every agent opinion to **PROCEED** (go ahead with the rule's action), **HOLD** (`MONITOR` / `NO_ACTION`) or **ESCALATE** (`needs_review` or a human), and compares it with the golden answer.
+
+**Confusion matrix** (rows = what the golden set expects, columns = what the agent said):
+
+| expected ↓ / agent → | PROCEED | HOLD | ESCALATE |
+|---|---|---|---|
+| **PROCEED** | ✅ correct | ❌ **false suppression** | ⚠️ over-cautious |
+| **HOLD** | ❌ **unsafe action** | ✅ correct | ⚠️ over-cautious |
+| **ESCALATE** | ❌ missed escalation | ❌ missed escalation | ✅ correct |
+
+Read it per rule and per domain. The diagonal is agreement. The off-diagonal cells say what *kind* of mistake is happening, which a single accuracy number hides.
+
+| Metric | How it's calculated | What it tells you |
+|---|---|---|
+| **Suppression rate** | Share of findings the agents held back (HOLD) | How much noise the judgment layer removes. Too low: agents add nothing beyond the rule. Too high: worth checking |
+| **False suppression rate** | Of findings the golden set says should go ahead, the share the agents held back | The most important number: real problems hidden by agent reasoning. Target **0** for CRITICAL rules |
+| **Unsafe action rate** | Of findings the golden set says to hold, the share the agents let go ahead | How often approval gates are the only protection |
+| **Fabrication rate** | Share of opinions that state a fact not found in the finding or the tool outputs, such as a tag that wasn't returned, an event that didn't happen, or a wrong number | Whether the agents stick to evidence. Target **0** |
+| **Escalation rate** and **`needs_review` calibration** | How often agents escalate, and whether they flag the cases that really are hard | Whether "I'm not sure" means something |
+| **Fallback / incomplete rate** | How often an agent failed and the rule's answer was used instead | How reliable the agents and their tools are |
+
+**Fabrication is checkable here** because every opinion records its tool calls. The evaluation compares each concrete claim in `rationale`, `evidence` and `observations` (tag keys, event names, ARNs, dates, amounts) with the recorded tool outputs. Claims with no source count as fabrications, as do any `must_not_claim` phrases. A second model can grade the less structured claims, with people spot-checking its grades.
+
+### Proposed layout
+
+```
+evals/
+  golden/<domain>/<case_id>.json   golden cases (finding + recorded context + expected)
+  run_evals.py                     replay each case through synthesize + conflicts, N runs
+  report.md                        confusion matrix and rates per rule / domain / model
+```
+
+The decision log already stores everything needed to create cases, so the harness only needs the replay and scoring code.
 
 ## Repository layout
 
@@ -254,6 +350,7 @@ The Findings table and decision log bucket are **kept** when the stack is delete
 | Orchestrator: routing, synthesis, conflict rules, remediation policy | Built |
 | Cost agent | Built |
 | Other eight domain agents | Planned. Until built, an owner agent falls back to the rule's recommended action (marked `source: fallback`), and a missing secondary agent escalates the finding to a human |
+| Golden dataset and evaluation harness (`evals/`) | Planned. See [Evaluating the judgments](#evaluating-the-judgments) |
 | CloudWatch alarms (DLQ depth, message age), dashboards, daily briefing | Planned |
 | Decision log in a separate Log Archive account | Planned |
 | Automated remediation | Decisions record the execution mode (AUTO / APPROVAL / MANUAL); nothing is executed yet |
